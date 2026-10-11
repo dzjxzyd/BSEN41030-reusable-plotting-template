@@ -110,11 +110,13 @@ def read_excel_file(
     except Exception as exc:
         raise ExcelFormatError(f"Could not read workbook {workbook_path}: {exc}") from exc
 
-    if not workbook.worksheets:
-        raise ExcelFormatError("The workbook does not contain a worksheet.")
-
-    worksheet = workbook.worksheets[0]
-    rows = [list(row) for row in worksheet.iter_rows(values_only=True)]
+    try:
+        if not workbook.worksheets:
+            raise ExcelFormatError("The workbook does not contain a worksheet.")
+        worksheet = workbook.worksheets[0]
+        rows = [list(row) for row in worksheet.iter_rows(values_only=True)]
+    finally:
+        workbook.close()
     rows = _trim_table(rows)
     if len(rows) < 2 or not rows[0]:
         raise ExcelFormatError("The first worksheet must contain a header row and at least one data row.")
@@ -191,9 +193,6 @@ def make_plot(
         raise ExcelFormatError("Cannot render a scatter chart without any labeled points.")
 
     try:
-        import matplotlib
-
-        matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError as exc:
         raise RuntimeError(
@@ -283,7 +282,7 @@ def run(
         y_label = entered or DEFAULT_Y_LABEL
 
     groups = read_excel_file(input_path, label_column, x_column, y_column)
-    output_path = Path(output_path) if output_path else input_path.with_name(f"{input_path.stem}_tsne_scatter.png")
+    output_path = Path(output_path).expanduser() if output_path else input_path.with_name(f"{input_path.stem}_tsne_scatter.png")
     return make_plot(groups, output_path, x_label, y_label)
 
 

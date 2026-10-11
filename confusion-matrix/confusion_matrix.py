@@ -88,7 +88,8 @@ def read_label_rows(
             "True and predicted label sets do not match: "
             f"true-only={sorted(true_labels - predicted_labels)!r}, "
             f"predicted-only={sorted(predicted_labels - true_labels)!r}. "
-            "Use --labels to provide the intended complete class order when a class is absent from predictions."
+            "Provide the complete class order with `labels=[...]` in the notebook or "
+            "--labels on the command line when a class is absent from predictions."
         )
     return rows
 
@@ -166,9 +167,6 @@ def make_plot(
     dpi: int = 600,
 ) -> tuple[Path, Path]:
     """Render and save a publication-style PNG and vector PDF."""
-    import matplotlib
-
-    matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from matplotlib.patches import Rectangle
 
@@ -178,9 +176,13 @@ def make_plot(
         raise ValueError("percentages must have the same shape as counts.")
 
     output_prefix = Path(output_prefix).expanduser()
+    # Accept "result.png" or "result.pdf" as a prefix, but never use with_suffix():
+    # it would truncate names containing dots, such as "results.v2_confusion_matrix".
+    if output_prefix.suffix.lower() in {".png", ".pdf"}:
+        output_prefix = output_prefix.with_suffix("")
     output_prefix.parent.mkdir(parents=True, exist_ok=True)
-    png_path = output_prefix.with_suffix(".png")
-    pdf_path = output_prefix.with_suffix(".pdf")
+    png_path = output_prefix.with_name(f"{output_prefix.name}.png")
+    pdf_path = output_prefix.with_name(f"{output_prefix.name}.pdf")
 
     number_of_classes = len(labels)
     tick_size, axis_size, annotation_size = _font_sizes(number_of_classes)

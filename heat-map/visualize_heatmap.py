@@ -30,8 +30,9 @@ def load_heatmap_csv(csv_path):
         )
 
     numeric_frame = frame.apply(pd.to_numeric, errors="coerce")
-    invalid_cells = numeric_frame.isna() & frame.notna()
-    if invalid_cells.any().any() or numeric_frame.isna().any().any():
+    # Blank cells and text cells are both invalid heatmap values.
+    invalid_cells = numeric_frame.isna()
+    if invalid_cells.any().any():
         invalid_locations = [
             f"{row}, {column}"
             for row, column in invalid_cells.stack()[invalid_cells.stack()].index
@@ -51,11 +52,20 @@ def derive_output_path(csv_path):
     return path.with_name(f"{path.stem}_heatmap.png")
 
 
-def _cns_colormap():
-    """Create a muted blue-white-red palette suitable for publication figures."""
+def _diverging_colormap():
+    """Muted blue-white-red palette for signed data centered at zero."""
     return LinearSegmentedColormap.from_list(
         "cns_muted_blue_white_red",
         ["#4169A1", "#F7F7F7", "#C84B4B"],
+        N=256,
+    )
+
+
+def _sequential_colormap():
+    """Muted light-to-dark red palette for data that does not cross zero."""
+    return LinearSegmentedColormap.from_list(
+        "cns_muted_sequential_red",
+        ["#FBF3F1", "#E8AFA6", "#C84B4B", "#7F1D1D"],
         N=256,
     )
 
@@ -79,10 +89,16 @@ def _color_limits(values):
     return data_min, data_max, None
 
 
-def create_heatmap(frame, row_title, column_title, output_path, show=True):
-    """Create and save the heatmap, returning the generated PNG path."""
+def create_heatmap(frame, row_title, column_title, output_path, show=True, value_title="Value"):
+    """Create and save the heatmap, returning the generated PNG path.
+
+    Signed data (negative and positive values) uses a diverging palette centered
+    at zero; all other data uses a sequential palette, so color intensity simply
+    tracks magnitude.
+    """
     values = frame.to_numpy(dtype=float)
     vmin, vmax, center = _color_limits(values)
+    colormap = _diverging_colormap() if center is not None else _sequential_colormap()
 
     row_count, column_count = frame.shape
     figure_width = max(10, column_count * 0.75 + 3.5)
@@ -93,14 +109,14 @@ def create_heatmap(frame, row_title, column_title, output_path, show=True):
     heatmap_options = {
         "data": frame,
         "annot": False,
-        "cmap": _cns_colormap(),
+        "cmap": colormap,
         "vmin": vmin,
         "vmax": vmax,
         "square": True,
         "linewidths": 0.6,
         "linecolor": "white",
         "cbar_kws": {
-            "label": "Value",
+            "label": value_title,
             "shrink": 0.9,
             "pad": 0.04,
             "aspect": 28,
@@ -112,8 +128,8 @@ def create_heatmap(frame, row_title, column_title, output_path, show=True):
 
     sns.heatmap(**heatmap_options)
 
-    ax.set_xlabel(column_title, fontsize=17, fontweight="bold", labelpad=14)
-    ax.set_ylabel(row_title, fontsize=17, fontweight="bold", labelpad=14)
+    ax.set_xlabel(column_title, fontsize=17, fontweight="normal", labelpad=14)
+    ax.set_ylabel(row_title, fontsize=17, fontweight="normal", labelpad=14)
     ax.tick_params(axis="x", labelsize=13, pad=5)
     ax.tick_params(axis="y", labelsize=13, pad=5)
     plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
@@ -121,11 +137,11 @@ def create_heatmap(frame, row_title, column_title, output_path, show=True):
 
     colorbar = ax.collections[0].colorbar
     colorbar.ax.tick_params(labelsize=12)
-    colorbar.set_label("Value", fontsize=14, fontweight="bold", labelpad=12)
+    colorbar.set_label(value_title, fontsize=14, fontweight="normal", labelpad=12)
 
     fig.tight_layout()
     output = Path(output_path).expanduser()
-    fig.savefig(output, dpi=300, bbox_inches="tight")
+    fig.savefig(output, dpi=600, bbox_inches="tight", facecolor="white")
     backend = plt.get_backend().lower()
     if show and "agg" not in backend and backend not in {"pdf", "pgf", "ps", "svg"}:
         plt.show()
@@ -133,7 +149,7 @@ def create_heatmap(frame, row_title, column_title, output_path, show=True):
     return output
 
 
-def main(csv_path=None, row_title=None, column_title=None, show=True):
+def main(csv_path=None, row_title=None, column_title=None, show=True, value_title="Value"):
     """Run the CSV-to-heatmap workflow interactively or from a notebook."""
     if csv_path is None:
         csv_input = input("Enter CSV filename or path: ").strip()
@@ -155,7 +171,9 @@ def main(csv_path=None, row_title=None, column_title=None, show=True):
     try:
         frame = load_heatmap_csv(csv_input)
         output_path = derive_output_path(csv_input)
-        create_heatmap(frame, row_title, column_title, output_path, show=show)
+        create_heatmap(
+            frame, row_title, column_title, output_path, show=show, value_title=value_title
+        )
     except (FileNotFoundError, OSError, ValueError) as exc:
         print(f"Error: {exc}")
         return 1

@@ -1,0 +1,5 @@
+model,auc,n_thresholds
+Model_A,0.9402,21
+Model_B,0.8200000000000001,37
+Model_C,0.744,44
+Model_D,0.6456,50

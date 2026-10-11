@@ -6,24 +6,14 @@ import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 import numpy as np
 import pandas as pd
 import seaborn as sns
 
 
-SUPPORTED_EXTENSIONS = {".csv", ".xlsx", ".xls"}
+SUPPORTED_EXTENSIONS = {".csv", ".xlsx", ".xlsm"}
 DEFAULT_BINS = 40
-
-
-def discover_data_files(directory: str | Path) -> list[Path]:
-    """Return supported data files in *directory*, sorted by filename."""
-    path = Path(directory).expanduser()
-    if not path.is_dir():
-        raise FileNotFoundError(f"Data directory not found: {path}")
-    return sorted(
-        (item for item in path.iterdir() if item.is_file() and item.suffix.lower() in SUPPORTED_EXTENSIONS),
-        key=lambda item: item.name.lower(),
-    )
 
 
 def load_data(data_path: str | Path) -> pd.DataFrame:
@@ -41,6 +31,10 @@ def load_data(data_path: str | Path) -> pd.DataFrame:
             frame = pd.read_excel(path)
     except pd.errors.EmptyDataError as exc:
         raise ValueError(f"The data file is empty: {path}") from exc
+    except ImportError as exc:
+        raise ValueError(
+            "Reading Excel files requires openpyxl. Install it with `python -m pip install openpyxl`."
+        ) from exc
     except (pd.errors.ParserError, OSError, ValueError) as exc:
         raise ValueError(f"Could not read data file: {path}") from exc
 
@@ -56,8 +50,15 @@ def _finite_numeric_values(series: pd.Series) -> np.ndarray:
 
 
 def numeric_columns(frame: pd.DataFrame) -> list[str]:
-    """Return columns containing at least one finite numeric value."""
-    return [column for column in frame.columns if _finite_numeric_values(frame[column]).size]
+    """Return columns whose non-blank values are all numeric (at least one finite)."""
+    columns = []
+    for column in frame.columns:
+        series = frame[column]
+        non_blank = series.notna() & series.astype(str).str.strip().ne("")
+        converted = pd.to_numeric(series[non_blank], errors="coerce")
+        if converted.notna().all() and _finite_numeric_values(series).size:
+            columns.append(column)
+    return columns
 
 
 def parse_column_selection(selection: str, column_count: int) -> list[int]:
@@ -129,11 +130,13 @@ def create_histogram(
     fig, ax = plt.subplots(figsize=(10, 6.5))
     fig.subplots_adjust(left=0.15, bottom=0.16, right=0.96, top=0.95)
     colors = sns.color_palette("colorblind", n_colors=len(columns))
+    # Shared bin edges keep bar widths identical, so overlaid counts are comparable.
+    bin_edges = np.histogram_bin_edges(np.concatenate(series_values), bins=bins)
 
     for column, values, color in zip(columns, series_values, colors):
         ax.hist(
             values,
-            bins=bins,
+            bins=bin_edges,
             color=color,
             alpha=0.58,
             edgecolor="#FFFFFF",
@@ -149,7 +152,9 @@ def create_histogram(
     ax.spines["bottom"].set_linewidth(1.5)
     ax.grid(False)
     ax.tick_params(axis="both", length=5, width=1.3, labelsize=15, pad=5)
-    ax.legend(fontsize=13, frameon=False)
+    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+    # Place the legend outside the axes so it never hides bars.
+    ax.legend(fontsize=13, frameon=False, loc="upper left", bbox_to_anchor=(1.02, 1.0), borderaxespad=0)
 
     output = Path(output_path).expanduser()
     output.parent.mkdir(parents=True, exist_ok=True)

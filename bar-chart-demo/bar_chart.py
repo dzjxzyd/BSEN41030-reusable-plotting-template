@@ -8,7 +8,7 @@ Expected workbook layout (first worksheet):
     | Sample 2     | 12.8        | 12.5        | 12.7        |
 
 Usage:
-    python analyze_excel.py "my_dataset.xlsx"
+    python bar_chart.py "my_dataset.xlsx"
 
 Dependencies:
     openpyxl, matplotlib, scipy
@@ -89,8 +89,13 @@ def read_excel_file(path: str | Path) -> OrderedDict[str, list[float]]:
     except Exception as exc:
         raise ExcelFormatError(f"Could not read workbook {workbook_path}: {exc}") from exc
 
-    worksheet = workbook.active
-    rows = [list(row) for row in worksheet.iter_rows(values_only=True)]
+    try:
+        if not workbook.worksheets:
+            raise ExcelFormatError("The workbook does not contain a worksheet.")
+        worksheet = workbook.worksheets[0]
+        rows = [list(row) for row in worksheet.iter_rows(values_only=True)]
+    finally:
+        workbook.close()
     rows = _trim_table(rows)
     if len(rows) < 2 or len(rows[0]) < 2:
         raise ExcelFormatError(
@@ -203,7 +208,9 @@ def calculate_statistics(samples: OrderedDict[str, list[float]]) -> tuple[dict[s
     degrees_within = total_n - number_of_groups
 
     if degrees_within <= 0:
-        raise ExcelFormatError("ANOVA requires at least two total residual degrees of freedom.")
+        raise ExcelFormatError(
+            "ANOVA requires at least one residual degree of freedom; add replicate values."
+        )
     mean_square_between = between_ss / degrees_between
     mean_square_within = within_ss / degrees_within
     if mean_square_within == 0:
@@ -225,8 +232,16 @@ def calculate_statistics(samples: OrderedDict[str, list[float]]) -> tuple[dict[s
             right = samples[right_name]
             difference = _mean(left) - _mean(right)
             standard_error = math.sqrt((mean_square_within / 2.0) * (1 / len(left) + 1 / len(right)))
-            q_value = abs(difference) / standard_error if standard_error else math.inf
-            p_adjusted = 0.0 if math.isinf(q_value) else _tukey_p_value(q_value, number_of_groups, degrees_within, stats)
+            if standard_error:
+                q_value = abs(difference) / standard_error
+                p_adjusted = _tukey_p_value(q_value, number_of_groups, degrees_within, stats)
+            elif difference == 0:
+                # Zero variance and identical means: no evidence of a difference.
+                q_value = 0.0
+                p_adjusted = 1.0
+            else:
+                q_value = math.inf
+                p_adjusted = 0.0
             tukey.append(
                 {
                     "group1": left_name,
@@ -241,24 +256,72 @@ def calculate_statistics(samples: OrderedDict[str, list[float]]) -> tuple[dict[s
 
 
 def significance_letters(summary: list[dict[str, Any]], tukey: list[dict[str, Any]]) -> dict[str, str]:
-    """Assign compact letters; groups sharing a letter are not significantly different."""
+    """Assign compact letters; groups sharing a letter are not significantly different.
+
+    Uses the insert-and-absorb algorithm (Piepho, 2004), so every pair of groups
+    that is not significantly different shares at least one letter, and every
+    significantly different pair shares none. Letter "a" marks the highest mean.
+    """
     names = [item["sample"] for item in sorted(summary, key=lambda item: item["mean"], reverse=True)]
-    significant: set[frozenset[str]] = {
-        frozenset((row["group1"], row["group2"])) for row in tukey if row["reject"]
-    }
+    rank = {name: index for index, name in enumerate(names)}
+    significant_pairs = [(row["group1"], row["group2"]) for row in tukey if row["reject"]]
 
-    letters: list[list[str]] = []
-    assignments: dict[str, list[str]] = {name: [] for name in names}
-    for name in names:
-        for letter_group in letters:
-            if all(frozenset((name, other)) not in significant for other in letter_group):
-                letter_group.append(name)
-                assignments[name].append(chr(ord("a") + letters.index(letter_group)))
-        if not assignments[name]:
-            letters.append([name])
-            assignments[name].append(chr(ord("a") + len(letters) - 1))
+    columns: list[set[str]] = [set(names)]
+    for first, second in significant_pairs:
+        updated: list[set[str]] = []
+        for column in columns:
+            if first in column and second in column:
+                updated.extend([column - {first}, column - {second}])
+            else:
+                updated.append(column)
+        # Absorb: drop empty, duplicate, and subset columns.
+        unique: list[set[str]] = []
+        for column in sorted(updated, key=len, reverse=True):
+            if column and not any(column <= kept for kept in unique):
+                unique.append(column)
+        columns = unique
 
-    return {name: "".join(assignments[name]) for name in names}
+    columns.sort(key=lambda column: sorted(rank[name] for name in column))
+    if len(columns) > 26:
+        raise ExcelFormatError("Too many distinct significance groups to label with a-z.")
+    assignments: dict[str, str] = {name: "" for name in names}
+    for letter_index, column in enumerate(columns):
+        for name in sorted(column, key=rank.get):
+            assignments[name] += chr(ord("a") + letter_index)
+    return assignments
+
+
+def _configure_x_tick_layout(fig: Any, ax: Any, names: list[str]) -> None:
+    """Rotate x tick labels only when their rendered bounds would overlap."""
+    ax.set_xticks(range(len(names)), names)
+    fig.canvas.draw()
+
+    renderer = fig.canvas.get_renderer()
+    labels = ax.get_xticklabels()
+    bounds = [label.get_window_extent(renderer) for label in labels]
+    minimum_gap = 4.0 * fig.dpi / 72.0
+    labels_overlap = any(
+        left.x1 + minimum_gap > right.x0
+        for left, right in zip(bounds, bounds[1:])
+    )
+
+    if not labels_overlap:
+        fig.subplots_adjust(bottom=0.22)
+        return
+
+    for label in labels:
+        label.set_rotation(45)
+        label.set_horizontalalignment("right")
+        label.set_rotation_mode("anchor")
+
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    label_height = max(
+        (label.get_window_extent(renderer).height for label in labels),
+        default=0.0,
+    )
+    bottom_margin = min(0.48, max(0.26, label_height / fig.bbox.height + 0.13))
+    fig.subplots_adjust(bottom=bottom_margin)
 
 
 def make_plot(
@@ -271,8 +334,6 @@ def make_plot(
 ) -> Path:
     """Render and save the publication-style PNG."""
     try:
-        import matplotlib
-        matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError as exc:
         raise RuntimeError(
@@ -298,7 +359,7 @@ def make_plot(
     })
     fig_width = max(7.2, min(14.0, 1.0 + 0.78 * len(names)))
     fig, ax = plt.subplots(figsize=(fig_width, 5.8))
-    fig.subplots_adjust(left=0.22, bottom=0.30, right=0.95, top=0.93)
+    fig.subplots_adjust(left=0.22, bottom=0.22, right=0.95, top=0.93)
     bars = ax.bar(
         x_values,
         means,
@@ -332,17 +393,15 @@ def make_plot(
             color="#1F2933",
         )
 
-    ax.set_xticks(x_values, names)
-    ax.set_ylabel(y_label, fontweight="normal")
-    ax.set_xlabel(x_label, fontweight="normal")
+    ax.set_ylabel(y_label, fontsize=17, fontweight="normal")
+    ax.set_xlabel(x_label, fontsize=17, fontweight="normal")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.spines["left"].set_linewidth(1.5)
     ax.spines["bottom"].set_linewidth(1.5)
     ax.grid(False)
     ax.tick_params(axis="both", length=5, width=1.3)
-    if len(names) > 6:
-        plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
+    _configure_x_tick_layout(fig, ax, names)
     ax.set_ylim(bottom - 0.04 * span, top + 0.16 * span)
 
     fig.savefig(output_path, dpi=600, bbox_inches="tight", facecolor="white")
@@ -376,9 +435,30 @@ def run(
         entered = input(f"Enter the y-axis title [{default_label}]: ").strip()
         y_label = entered or default_label
 
-    output_path = Path(output_path) if output_path else input_path.with_name(f"{input_path.stem}_barplot.png")
+    output_path = Path(output_path).expanduser() if output_path else input_path.with_name(f"{input_path.stem}_barplot.png")
     make_plot(samples, summary, letters, x_label, y_label, output_path)
+    print_statistics(summary, anova, tukey, letters)
     return output_path
+
+
+def print_statistics(
+    summary: list[dict[str, Any]],
+    anova: dict[str, float | str],
+    tukey: list[dict[str, Any]],
+    letters: dict[str, str],
+) -> None:
+    """Print the ANOVA result, group summary, and Tukey HSD comparisons."""
+    print(f"One-way ANOVA: F = {anova['anova_f']:.3f}, p = {anova['anova_p']:.3g}")
+    print("\nGroup summary (bars show mean ± SD):")
+    for row in summary:
+        print(
+            f"  {row['sample']}: n = {row['n']}, mean = {row['mean']:.3f}, "
+            f"SD = {row['sd']:.3f}, letter = {letters[row['sample']]}"
+        )
+    print("\nTukey HSD (groups sharing a letter are not significantly different, alpha = 0.05):")
+    for row in tukey:
+        verdict = "significant" if row["reject"] else "not significant"
+        print(f"  {row['group1']} vs {row['group2']}: p_adj = {row['p_adj']:.4g} ({verdict})")
 
 
 def main(

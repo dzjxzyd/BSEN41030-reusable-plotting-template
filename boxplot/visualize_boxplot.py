@@ -222,7 +222,16 @@ def create_boxplot(
         legend=False,
         width=0.62,
         linewidth=1.6,
-        showfliers=False,
+        # With observations overlaid, outliers are already visible as points.
+        # Without them, draw outliers (beyond 1.5 x IQR) so they are not hidden.
+        showfliers=not show_points,
+        flierprops={
+            "marker": "o",
+            "markersize": 6,
+            "markerfacecolor": "white",
+            "markeredgecolor": EDGE_COLOR,
+            "markeredgewidth": 1.2,
+        },
         boxprops={"edgecolor": EDGE_COLOR, "linewidth": 1.6},
         whiskerprops={"color": EDGE_COLOR, "linewidth": 1.4},
         capprops={"color": EDGE_COLOR, "linewidth": 1.4},
@@ -267,7 +276,7 @@ def create_boxplot(
     fig.subplots_adjust(left=0.22, bottom=0.30, right=0.95, top=0.90)
     output = Path(output_path).expanduser()
     output.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output, dpi=300, bbox_inches="tight")
+    fig.savefig(output, dpi=600, bbox_inches="tight", facecolor="white")
 
     backend = plt.get_backend().lower()
     if show and "agg" not in backend and backend not in {"pdf", "pgf", "ps", "svg"}:
@@ -283,7 +292,7 @@ def main(
     category_title=None,
     value_title=None,
     output_path=None,
-    title="Boxplot",
+    title=None,
     group_order=None,
     show_points=True,
     show=True,
@@ -325,7 +334,7 @@ def main(
             category_title=category_title,
             value_title=value_title,
             output_path=output_with_points,
-            title=None,
+            title=title,
             group_order=group_order,
             show_points=True,
             show=show,
@@ -337,7 +346,7 @@ def main(
             category_title=category_title,
             value_title=value_title,
             output_path=output_without_points,
-            title=None,
+            title=title,
             group_order=group_order,
             show_points=False,
             show=show,

@@ -25,14 +25,13 @@ class CSVFormatError(ValueError):
 
 def _load_dependencies():
     try:
-        import matplotlib
-        matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         import pandas as pd
         from sklearn.metrics import auc, roc_curve
     except ImportError as exc:
         raise RuntimeError(
-            "Missing dependency. Install them with `python -m pip install -r requirements.txt`."
+            "Missing dependency. Install the toolkit requirements with "
+            "`python -m pip install -r ../requirements.txt`."
         ) from exc
     return auc, plt, pd, roc_curve
 
@@ -92,9 +91,32 @@ def calculate_auc_summary(data: Any, model_columns: list[str]) -> list[dict[str,
         summary.append({
             "model": model,
             "auc": float(roc_auc_score(labels, data[model])),
-            "n_thresholds": float(len(fpr)),
+            "n_thresholds": len(fpr),
         })
     return summary
+
+
+# Muted, distinguishable colors; the first four match the original four-model style.
+PALETTE = [
+    "#214A55",
+    "#A65D43",
+    "#6E8B74",
+    "#6B7280",
+    "#C9A227",
+    "#7B5EA7",
+    "#4C9BC7",
+    "#C2185B",
+    "#8C564B",
+    "#2E7D32",
+]
+LINE_STYLES = ["-", "--", ":", "-."]
+
+
+def default_title(model_count: int) -> str:
+    """Return a title that matches the number of model columns."""
+    if model_count == 1:
+        return "ROC Curve"
+    return f"ROC Curves for {model_count} Models"
 
 
 def _summary_path(output_path: Path) -> Path:
@@ -105,7 +127,7 @@ def make_plot(
     data: Any,
     model_columns: list[str],
     summary: list[dict[str, float | str]],
-    title: str,
+    title: str | None,
     output_path: str | Path,
 ) -> Path:
     """Render and save the ROC plot and AUC summary CSV."""
@@ -125,7 +147,6 @@ def make_plot(
         "axes.linewidth": 1.5,
     })
 
-    palette = ["#214A55", "#A65D43", "#6E8B74", "#6B7280"]
     fig, ax = plt.subplots(figsize=(7.8, 6.2))
     fig.subplots_adjust(left=0.18, bottom=0.16, right=0.96, top=0.90)
 
@@ -136,7 +157,9 @@ def make_plot(
         ax.plot(
             fpr,
             tpr,
-            color=palette[index % len(palette)],
+            color=PALETTE[index % len(PALETTE)],
+            # Change line style only after all colors are used, so curves stay distinct.
+            linestyle=LINE_STYLES[(index // len(PALETTE)) % len(LINE_STYLES)],
             linewidth=2.0,
             alpha=0.95,
             label=f"{model} (AUC = {curve_auc:.3f})",
@@ -146,12 +169,14 @@ def make_plot(
     ax.plot(
         [0, 1],
         [0, 1],
-        linestyle="--",
+        linestyle=(0, (4, 3)),
         color="#7A7A7A",
         linewidth=1.2,
         label="Random classifier",
         zorder=1,
     )
+    if title is None:
+        title = default_title(len(summary))
     ax.set_title(title, fontweight="normal", pad=14)
     ax.set_xlabel("False Positive Rate", fontweight="normal")
     ax.set_ylabel("True Positive Rate", fontweight="normal")
@@ -176,7 +201,7 @@ def make_plot(
 def run(
     input_path: str | Path,
     output_path: str | Path | None = None,
-    title: str = "ROC Curves for Four Models",
+    title: str | None = None,
 ) -> tuple[Path, Path]:
     """Read input data, calculate AUC, and save the plot and summary."""
     input_path = Path(input_path).expanduser()
@@ -190,7 +215,7 @@ def run(
 def main(
     csv_file: str | Path | None = None,
     output_path: str | Path | None = None,
-    title: str = "ROC Curves for Four Models",
+    title: str | None = None,
 ) -> int:
     """Run from a notebook or command line, prompting for a missing CSV path."""
     if csv_file is None:
@@ -215,7 +240,7 @@ def cli_main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("csv_file", type=Path, nargs="?", help="Input wide-format CSV file")
     parser.add_argument("-o", "--output", type=Path, help="PNG output path")
-    parser.add_argument("--title", default="ROC Curves for Four Models", help="Plot title")
+    parser.add_argument("--title", help="Plot title; defaults to 'ROC Curves for <n> Models'")
     args = parser.parse_args()
     return main(args.csv_file, args.output, args.title)
 

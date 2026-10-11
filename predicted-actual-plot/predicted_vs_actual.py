@@ -45,7 +45,9 @@ def _validate_headers(headers: list[Any]) -> list[str]:
 
     normalized = [header.casefold() for header in cleaned]
     if len(set(normalized)) != len(normalized):
-        raise InputDataError("Column names must be unique (ignoring upper/lower case and spaces).")
+        raise InputDataError(
+            "Column names must be unique (ignoring upper/lower case and leading/trailing spaces)."
+        )
     return cleaned
 
 
@@ -103,6 +105,14 @@ def _read_excel_file(path: Path) -> tuple[list[str], list[dict[str, Any]]]:
     if not rows:
         raise InputDataError("The first worksheet is empty.")
 
+    # Excel often reports formatted-but-empty columns on the right; drop columns
+    # that are blank in every row so they are not treated as unnamed headers.
+    width = max(len(row) for row in rows)
+    rows = [list(row) + [None] * (width - len(row)) for row in rows]
+    while width and all(_is_blank(row[width - 1]) for row in rows):
+        width -= 1
+    rows = [row[:width] for row in rows]
+
     headers = _validate_headers(rows[0])
     records: list[dict[str, Any]] = []
     for values in rows[1:]:
@@ -134,12 +144,14 @@ def read_table(path: str | Path) -> tuple[list[str], list[dict[str, Any]]]:
     raise InputDataError("Supported input formats are .csv, .xlsx, and .xlsm.")
 
 
-def _resolve_column(headers: list[str], entered: str) -> str:
+def resolve_column(headers: list[str], entered: str) -> str:
     """Resolve a column name case-insensitively while preserving its real name."""
     candidate = entered.strip().casefold()
     matches = [header for header in headers if header.casefold() == candidate]
     if not matches:
-        raise InputDataError(f"Column {entered!r} was not found.")
+        raise InputDataError(
+            f"Column {entered!r} was not found. Available columns: {', '.join(headers)}."
+        )
     return matches[0]
 
 
@@ -150,7 +162,7 @@ def _prompt_column(headers: list[str], label: str) -> str:
         except EOFError as exc:
             raise InputDataError("No column name was provided.") from exc
         try:
-            return _resolve_column(headers, entered)
+            return resolve_column(headers, entered)
         except InputDataError as exc:
             print(f"Error: {exc}")
             print("Please choose one of the listed column names.")
@@ -178,6 +190,13 @@ def extract_numeric_pairs(
     rows: list[dict[str, Any]], actual_column: str, predicted_column: str
 ) -> tuple[list[float], list[float], int]:
     """Extract paired numeric values; blank pairs are skipped."""
+    available = list(rows[0]) if rows else []
+    for column in (actual_column, predicted_column):
+        if column not in available:
+            raise InputDataError(
+                f"Column {column!r} was not found. Available columns: {', '.join(available)}. "
+                "Use resolve_column() for case-insensitive matching."
+            )
     actual_values: list[float] = []
     predicted_values: list[float] = []
     skipped_rows = 0
@@ -233,9 +252,6 @@ def make_plot(
     output_path: str | Path,
 ) -> Path:
     try:
-        import matplotlib
-
-        matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError as exc:
         raise RuntimeError(
