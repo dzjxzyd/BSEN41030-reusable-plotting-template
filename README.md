@@ -1,7 +1,7 @@
 # BSEN41030 Reusable Plotting Template
 
 <p align="center">
-  <strong>A classroom-ready collection of reusable plots for science and engineering data</strong><br>
+  <strong>A classroom-ready collection of reusable plots for food, health, science and engineering data</strong><br>
   <sub>Python scripts · Jupyter Notebooks · sample data · publication-style figure outputs</sub>
 </p>
 
@@ -30,7 +30,7 @@ This repository was prepared for **BSEN41030** teaching and demonstration activi
 
 ## Representative figures
 
-The gallery below cites representative output files already included in the repository. Click any figure to open its source image; the corresponding folder also contains the Python script and/or notebook used to generate it.
+The gallery below shows representative output files already included in the repository. Click any figure to open its source image; the corresponding folder also contains the Python script and/or notebook used to generate it.
 
 <table>
   <tr>
@@ -41,10 +41,10 @@ The gallery below cites representative output files already included in the repo
       <sub><b>AUC–ROC</b><br><a href="AUC-ROC/auc_demo_data_roc.png">source figure</a></sub>
     </td>
     <td align="center" width="25%">
-      <a href="bar-chart-demo/sample-2-antioxidant_barplot.png">
-        <img src="bar-chart-demo/sample-2-antioxidant_barplot.png" alt="Bar chart example" width="220">
+      <a href="bar-chart-demo/sample-1-antioxidant_barplot.png">
+        <img src="bar-chart-demo/sample-1-antioxidant_barplot.png" alt="Bar chart example" width="220">
       </a><br>
-      <sub><b>Bar chart</b><br><a href="bar-chart-demo/sample-2-antioxidant_barplot.png">source figure</a></sub>
+      <sub><b>Bar chart</b><br><a href="bar-chart-demo/sample-1-antioxidant_barplot.png">source figure</a></sub>
     </td>
     <td align="center" width="25%">
       <a href="boxplot/blood_glucose_meal_response_synthetic_boxplot_with_points.png">
@@ -67,10 +67,10 @@ The gallery below cites representative output files already included in the repo
       <sub><b>Heatmap</b><br><a href="heat-map/gene_expression_heatmap.png">source figure</a></sub>
     </td>
     <td align="center" width="25%">
-      <a href="histogram/food_antioxidant_capacity_synthetic_histogram.png">
-        <img src="histogram/food_antioxidant_capacity_synthetic_histogram.png" alt="Histogram example" width="220">
+      <a href="histogram/histogram_prediction_scores_histogram.png">
+        <img src="histogram/histogram_prediction_scores_histogram.png" alt="Histogram example" width="220">
       </a><br>
-      <sub><b>Histogram</b><br><a href="histogram/food_antioxidant_capacity_synthetic_histogram.png">source figure</a></sub>
+      <sub><b>Histogram</b><br><a href="histogram/histogram_prediction_scores_histogram.png">source figure</a></sub>
     </td>
     <td align="center" width="25%">
       <a href="predicted-actual-plot/synthetic_actual_vs_predicted_predicted_vs_actual.png">
@@ -99,7 +99,7 @@ python -m venv .venv
 source .venv/bin/activate        # macOS/Linux
 # .venv\\Scripts\\activate       # Windows
 
-pip install numpy pandas matplotlib seaborn scikit-learn openpyxl jupyter
+python -m pip install -r requirements.txt
 ```
 
 Launch the notebooks with:
